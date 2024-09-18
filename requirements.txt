@@ -1,0 +1,8 @@
+apt-get update
+apt-get install gmsh -y
+python -m pip install gmsh
+pip install numpy
+pip install matplotlib
+pip install meshio[all]
+pip install scipy
+gmsh -2 plate.geo -o plate.msh
