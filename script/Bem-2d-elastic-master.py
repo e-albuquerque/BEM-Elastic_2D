@@ -1,5 +1,11 @@
 import numpy as np
 import meshio
+import matplotlib.pyplot as plt
+
+import "../src/geometry"
+import "../src/boundcond"
+import "../src/graphics"
+
 
 def input_data():
     """
