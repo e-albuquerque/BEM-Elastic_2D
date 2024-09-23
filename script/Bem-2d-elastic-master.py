@@ -1,6 +1,7 @@
 import numpy as np
 import meshio
 import matplotlib.pyplot as plt
+import os
 
 import sys
 sys.path.append("../src")
@@ -38,7 +39,8 @@ def input_data():
     }
     E = 1.0
     nu = 0.3
-    file_name = '/workspaces/BEM-Elastic_2D/gmsh/plate'
+    cwd = os.getcwd() # Get the current working directory
+    file_name = os.path.abspath(os.path.join(cwd, os.pardir))+'/gmsh/plate'
     qpoint = '0.'  # Heat source
 
     return {'bound_cond': bound_cond, 'E': E, 'nu': nu, 'file_name': file_name,
