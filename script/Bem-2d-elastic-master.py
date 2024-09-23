@@ -2,9 +2,14 @@ import numpy as np
 import meshio
 import matplotlib.pyplot as plt
 
-import "../src/geometry"
-import "../src/boundcond"
-import "../src/graphics"
+import sys
+sys.path.append("../src")
+
+
+import geometry
+import boundcond
+import graphics
+import matrices
 
 
 def input_data():
@@ -33,7 +38,7 @@ def input_data():
     }
     E = 1.0
     nu = 0.3
-    file_name = 'placa'
+    file_name = '/workspaces/BEM-Elastic_2D/gmsh/plate'
     qpoint = '0.'  # Heat source
 
     return {'bound_cond': bound_cond, 'E': E, 'nu': nu, 'file_name': file_name,
@@ -42,19 +47,19 @@ def input_data():
 inp_data = input_data()
 
 # Format input data
-computed_data = compute_inodes(inp_data['file_name'], inp_data['bound_cond'])
+computed_data = geometry.compute_inodes(inp_data['file_name'], inp_data['bound_cond'])
 
 # Compute the mid point of the elements and normal vector at this mid point
-nodes, normal = comp_node_and_normal(computed_data['line_elements'], computed_data['coordinates'])
+nodes, normal = geometry.comp_node_and_normal(computed_data['line_elements'], computed_data['coordinates'])
 
 # Generate bcs array with boundary conditions in each element
-bcs = mount_bcs(computed_data['segments'], computed_data['bc_info'])
+bcs = boundcond.mount_bcs(computed_data['segments'], computed_data['bc_info'])
 
 
 # Show geometry and boundary conditions
 import matplotlib.pyplot as plt
 nodes_coord = computed_data['coordinates']
-show_problem(nodes,normal,nodes_coord,bcs,computed_data['triangle_elements'])
+graphics.show_problem(nodes,normal,nodes_coord,bcs,computed_data['triangle_elements'])
 
 
 # Assembly H and G matrices
@@ -63,21 +68,21 @@ nodes_coord=computed_data['coordinates']
 qpoint = inp_data['qpoint']
 E=inp_data['E']
 nu=inp_data['nu']
-H, G, g = mount_matrix(nodes,normal,E,nu,qpoint)
+H, G, g = matrices.mount_matrices(nodes,normal,E,nu,qpoint)
 
-T=transformation_matrix(normal)
+T=matrices.transformation_matrix(normal)
 
 Hnt=np.matmul(H,T) # H matrix in the local refence system
 Gnt=np.matmul(G,T) # G matrix in the local refence system
 
 # Assembly matrix A  and vector b
-A, b = mount_linear_system(Hnt, Gnt, bcs)
+A, b = matrices.mount_linear_system(Hnt, Gnt, bcs)
 
 # Solve the linear system
 x = np.linalg.solve(A, b+g)
 
 # Mount vectors u and t
-unt, tnt = mount_vector(x, bcs) # Displacements and tractions in the local reference system
+unt, tnt = matrices.mount_vectors(x, bcs) # Displacements and tractions in the local reference system
 
 nnodes=unt.shape[0] # Number of nodes
 uvect=T.dot(unt.reshape(2*nnodes)) # Vector with diplacements in global reference system (lenght = 2nnodes)
@@ -91,7 +96,7 @@ int_nodes = computed_data['internal_nodes'] # Index of internal nodes
 qpoint = inp_data['qpoint'] # Body force
 
 # Compute displacements at internal points
-uint_vet = int_point(int_nodes,normal,nodes,nodes_coord,E,nu,qpoint, uvect, tvect)
+uint_vet = matrices.int_point(int_nodes,normal,nodes,nodes_coord,E,nu,qpoint, uvect, tvect)
 
 nint=uint_vet.shape[0]//2
 uint=uint_vet.reshape(nint,2)
@@ -107,4 +112,4 @@ u_t=np.sqrt(u[:,0]**2+u[:,1]**2)
 uint_t=np.sqrt(uint[:,0]**2+uint[:,1]**2)
 
 title_fig = "Total displacement"
-show_results(nodes_all,bound_nodes,int_nodes,nodes,elem,nodes_coord,u_t,uint_t,title_fig)
+graphics.show_results(nodes_all,bound_nodes,int_nodes,nodes,elem,nodes_coord,u_t,uint_t,title_fig)

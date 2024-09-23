@@ -1,3 +1,4 @@
+import numpy as np
 def mount_bcs(segments, bc_info):
     """
     Constructs a boundary condition matrix from segment information and boundary condition data.
