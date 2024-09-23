@@ -113,3 +113,37 @@ uint_t=np.sqrt(uint[:,0]**2+uint[:,1]**2)
 
 title_fig = "Total displacement"
 graphics.show_results(nodes_all,bound_nodes,int_nodes,nodes,elem,nodes_coord,u_t,uint_t,title_fig)
+
+# Stress at internal points
+stress1,stress2 = matrices.compute_stress(int_nodes,nodes, nodes_coord,normal,E,nu,uvect,tvect,qpoint)
+sigmax=stress1[0::2]
+sigmay=stress2[1::2]
+tauxy =stress2[0::2]
+
+# Tangent strain at boundary
+
+epsilont = matrices.compute_epsilont(nodes, nodes_coord,normal,E,nu,unt[:,1],qpoint)
+
+# Tangent stress at boundary
+
+sigmat = matrices.compute_sigmat(E,nu,tnt[:,0],epsilont)
+
+# von Mises stress at boundary
+
+sigmaxy=matrices.compute_boundary_stresses(normal,tnt[:,0],sigmat,tnt[:,1])
+
+vmstress_bound=matrices.compute_vonMises_stress(sigmaxy)
+
+# von Mises stress at internal points
+
+n_intnodes=sigmax.shape[0]
+sigmaxy_int=np.zeros((n_intnodes,3))
+sigmaxy_int[:,0]=sigmax
+sigmaxy_int[:,1]=sigmay
+sigmaxy_int[:,2]=tauxy
+vmstress_int=matrices.compute_vonMises_stress(sigmaxy_int)
+
+# Heat map of von Mises stress
+
+title_fig = "Von Mises equivant stress"
+graphics.show_results(nodes_all,bound_nodes,int_nodes,nodes,elem,nodes_coord,vmstress_bound,vmstress_int,title_fig)

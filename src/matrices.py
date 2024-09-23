@@ -450,3 +450,254 @@ def int_point(node_int, normal, nodes, nodes_coord, E, nu, qpoint_str, u, t):
     uint = - Hin.dot(u) + Gin.dot(t) - qin # Displacement
 
     return uint
+
+def compute_D_S(x0, y0, x, y, nx, ny, E, nu):
+  """
+  Computes the components of third order tensors D and S for the boundary element method.
+
+  Args:
+    x0: x-coordinate of the source point.
+    y0: y-coordinate of the source point.
+    x: x-coordinate of the field point.
+    y: y-coordinate of the field point.
+    nx: x-component of the normal vector at the field point.
+    ny: y-component of the normal vector at the field point.
+    E: Young's modulus of the material.
+    nu: Poisson's ratio of the material.
+
+  Returns:
+    D: A 3D array representing the components of the tensor D.
+    S: A 3D array representing the components of the tensor S.
+  """
+  D = np.zeros((2, 2, 2))
+  S = np.zeros((2, 2, 2))
+  dr = np.zeros(2)
+  mu = E / (2 * (1 + nu))  # Shear modulus
+  r1 = x - x0
+  r2 = y - y0
+  r = np.sqrt(r1**2 + r2**2)  # Distance from source point to field point
+  dr[0] = r1 / r
+  dr[1] = r2 / r
+  fat1 = 4 * np.pi * (1 - nu)
+  fat2 = 1 - 2 * nu
+  drdn = dr[0] * nx + dr[1] * ny  # Normal direction derivative
+  kro = np.array([[1., 0.], [0., 1.]])  # Kronecker delta
+  n = np.array([nx, ny])  # Unity normal vector
+  for k in range(2):
+    for i in range(2):
+      for j in range(2):
+        d1 = fat2 * (kro[k, i] * dr[j] + kro[k, j] * dr[i] - kro[i, j] * dr[k])
+        d2 = 2 * dr[i] * dr[j] * dr[k]
+        D[k, i, j] = (d1 + d2) / (fat1 * r)
+        t1 = 2 * drdn * (fat2 * kro[i, j] * dr[k] + nu * (kro[i, k] * dr[j] + kro[j, k] * dr[i]) -
+                       4 * dr[i] * dr[j] * dr[k])
+        t2 = 2 * nu * (n[i] * dr[j] * dr[k] + n[j] * dr[i] * dr[k])
+        t3 = fat2 * (2 * n[k] * dr[i] * dr[j] + n[j] * kro[i, k] + n[i] * kro[j, k]) - (1 - 4 * nu) * n[k] * kro[i, j]
+        S[k, i, j] = (t1 + t2 + t3) * 2 * mu / (fat1 * r**2)
+
+  D[k, 1, 0] = D[k, 0, 1]
+  S[k, 1, 0] = S[k, 0, 1]
+  return D, S
+
+def integrate_D_and_S(xd, yd, x1, y1, x2, y2, normal, E, nu, xi, w):
+  """
+  Computes integrals involving the third-order tensors D and S for the boundary element method.
+
+  Args:
+    xd: x-coordinate of the source point.
+    yd: y-coordinate of the source point.
+    x1: x-coordinate of the first node of the element.
+    y1: y-coordinate of the first node of the element.
+    x2: x-coordinate of the second node of the element.
+    y2: y-coordinate of the second node of the element.
+    normal: Normal vector at the element midpoint.
+    E: Young's modulus of the material.
+    nu: Poisson's ratio of the material.
+    xi: Gauss quadrature points.
+    w: Gauss quadrature weights.
+
+  Returns:
+    h1, g1, h2, g2: Integrals involving D and S tensors.
+  """
+
+  n_pint = len(xi)  # Number of integration points
+  g1 = np.zeros((2, 4))
+  h1 = np.zeros((2, 4))
+  g2 = np.zeros((2, 4))
+  h2 = np.zeros((2, 4))
+  L = 2 * np.sqrt((x2 - x1)**2 + (y2 - y1)**2)  # Length of the element
+  dgamadqsi = L / 2  # Jacobian of the transformation
+
+  nx = normal[0]
+  ny = normal[1]
+
+  for kk in range(n_pint):
+    # Integration point coordinates and shape functions
+    N1 = 0.5 - xi[kk]
+    N2 = 0.5 + xi[kk]
+    N = np.array([[N1, 0, N2, 0], [0, N1, 0, N2]])
+    x = N1 * x1 + N2 * x2
+    y = N1 * y1 + N2 * y2
+
+    D, S = compute_D_S(xd, yd, x, y, nx, ny, E, nu)
+
+    # Reshape D and S tensors for easier matrix multiplication
+    D1 = np.array([[D[0, 0, 0], D[1, 0, 0]], [D[0, 0, 1], D[1, 0, 1]]])
+    D2 = np.array([[D[0, 1, 0], D[1, 1, 0]], [D[0, 1, 1], D[1, 1, 1]]])
+    S1 = np.array([[S[0, 0, 0], S[1, 0, 0]], [S[0, 0, 1], S[1, 0, 1]]])
+    S2 = np.array([[S[0, 1, 0], S[1, 1, 0]], [S[0, 1, 1], S[1, 1, 1]]])
+
+    # Compute integrals for x and y components of stress
+    nxd = 1
+    nyd = 0
+    g1 += nxd * D1.dot(N) * dgamadqsi * w[kk] + nyd * D2.dot(N) * dgamadqsi * w[kk]
+    h1 += nxd * S1.dot(N) * dgamadqsi * w[kk] + nyd * S2.dot(N) * dgamadqsi * w[kk]
+
+    nxd = 0
+    nyd = 1
+    g2 += nxd * D1.dot(N) * dgamadqsi * w[kk] + nyd * D2.dot(N) * dgamadqsi * w[kk]
+    h2 += nxd * S1.dot(N) * dgamadqsi * w[kk] + nyd * S2.dot(N) * dgamadqsi * w[kk]
+
+  return h1, g1, h2, g2
+
+def compute_stress(nodes_int, nodes, nodes_coord, normal, E, nu, u, t, qpoint):
+  """
+  Computes stresses at internal points using the boundary element method.
+
+  Args:
+    nodes_int: List of indices of internal nodes.
+    nodes: List of indices of boundary nodes.
+    nodes_coord: Coordinates of all nodes.
+    normal: Normal vectors at boundary elements.
+    E: Young's modulus.
+    nu: Poisson's ratio.
+    u: Displacements at boundary nodes.
+    t: Tractions at boundary nodes.
+    qpoint: Body force.
+
+  Returns:
+    stress1, stress2: Stress components at internal points.
+  """
+
+  npgauss = 4  # Number of integration points
+  xi, w = np.polynomial.legendre.leggauss(npgauss)  # Gaussian points and weights
+  n_int = len(nodes_int)  # Number of internal points
+  n_nodes = nodes.shape[0]  # Number of boundary nodes
+  n_el = n_nodes // 2  # Number of boundary elements
+  stress1 = np.zeros((2 * n_int))
+  stress2 = np.zeros((2 * n_int))
+
+  for no in range(n_int):
+    x_f, y_f = nodes_coord[nodes_int[no]][0:2]  # Internal point coordinates
+    for el in range(n_el):
+      x1, y1 = nodes[2 * el, 0:2]  # Coordinates of the first node of the element
+      x2, y2 = nodes[2 * el + 1, 0:2]  # Coordinates of the second node of the element
+      h1, g1, h2, g2 = integrate_D_and_S(x_f, y_f, x1, y1, x2, y2, normal[2 * el, :], E, nu, xi, w)
+
+      # Compute stress contribution from current element
+      stress1[2 * no:2 * no + 2] += (-h1.dot(u[4*el:4*el+4]) + g1.dot(t[4*el:4*el+4]))
+      stress2[2 * no:2 * no + 2] += (-h2.dot(u[4*el:4*el+4]) + g2.dot(t[4*el:4*el+4]))
+
+  return stress1, stress2
+
+
+def compute_epsilont(nodes, nodes_coord,normal,E,nu,ut,qpoint):
+  """
+  Computes the tangential strain at boundary nodes using shape function derivatives.
+
+  Args:
+    nodes: Array of boundary node indices.
+    nodes_coord: Array of node coordinates.
+    normal: Array of normal vectors at boundary elements.
+    E: Young's modulus.
+    nu: Poisson's ratio.
+    ut: Array of tangential displacements at boundary nodes.
+    qpoint: Body force.
+
+  Returns:
+    et: Array of tangential strains at boundary nodes.
+  """
+  n_nodes=nodes.shape[0] # Number of boundary nodes
+  et=np.zeros(n_nodes) # Tangential strain vector
+  n_el=n_nodes//2 # Number of elements
+  dN1dxi = -1. # Derivative of the first shape function with respect to xi
+  dN2dxi = 1. # Derivative of the second shape function with respect to xi
+  for el in range(n_el):
+    node1=2*el # First node of the element
+    node2=2*el+1 # Second node of the element
+    ut1 = ut[node1] # Displacement of node 1 in tangential direction
+    ut2 = ut[node2] # Displacement of node 2 in tangential direction
+    x1 = nodes[node1,0] # x coordinate of node 1
+    y1 = nodes[node1,1] # y coordinate of node 1
+    x2 = nodes[node2,0] # x coordinate of node 2
+    y2 = nodes[node2,1] # y coordinate of node 2
+    dxdxi=dN1dxi*x1+dN2dxi*x2
+    dydxi=dN1dxi*y1+dN2dxi*y2;
+    dgammadxi=np.sqrt(dxdxi**2+dydxi**2) # Jacobian
+    dutdxi = dN1dxi*ut1+dN2dxi*ut2 # Derivative of tangential displacement with respect to xi
+    et[node1] = dutdxi/dgammadxi # Tangential strain at node 1
+    et[node2] = dutdxi/dgammadxi # Tangential strain at node 2
+  return et
+
+def compute_sigmat(E, nu, sigman, epsilont):
+  """
+  Computes the tangential stress at the boundary.
+
+  Args:
+    E: Young's modulus.
+    nu: Poisson's ratio.
+    sigman: Normal stress.
+    epsilont: Tangential strain.
+
+  Returns:
+    sigmat: Tangential stress.
+  """
+  sigmat = (E / (1 - nu**2)) * epsilont + (nu * (1 + nu) / (1 - nu**2)) * sigman
+  return sigmat
+
+def compute_boundary_stresses(normal, sigman, sigmat, taunt):
+  """
+  Computes stresses on the boundary in the global reference system xy.
+
+  Args:
+    normal: Array of normal vectors at boundary elements.
+    sigman: Array of normal stresses.
+    sigmat: Array of tangential stresses.
+    taunt: Array of shear stresses.
+
+  Returns:
+    sigmaxy: Array of stress components in the global xy system.
+  """
+  nn = normal.shape[0]  # Number of nodes
+  sigmaxy = np.zeros((nn, 3))  # Matrix to store stress components
+  for i in range(nn):
+    t = np.array([[normal[i, 0], -normal[i, 1]],
+                  [normal[i, 1], normal[i, 0]]])  # Transformation matrix
+    sigma = np.array([[sigman[i], taunt[i]],
+                     [taunt[i], sigmat[i]]])  # Stress tensor in local system
+    s = t.T @ sigma @ t  # Stress tensor in global system
+    sigmaxy[i, 0:3] = np.array([s[0, 0], s[1, 1], s[0, 1]])
+  return sigmaxy
+
+
+def compute_vonMises_stress(sigmaxy):
+  """
+  Computes the von Mises stress from the stress tensor.
+
+  Args:
+    sigmaxy: A NumPy array of shape (n, 3) where each row represents the stress
+             components (sigmax, sigmay, tauxy) at a boundary node.
+
+  Returns:
+    vmstress: A NumPy array of shape (n,) containing the von Mises stress at
+              each boundary node.
+  """
+  n = sigmaxy.shape[0]
+  vmstress = np.zeros(n)
+  for i in range(n):
+    sigmax = sigmaxy[i, 0]
+    sigmay = sigmaxy[i, 1]
+    tauxy = sigmaxy[i, 2]
+    vmstress[i] = np.sqrt(sigmax**2 - sigmax * sigmay + sigmay**2 + 3 * tauxy**2)
+  return vmstress
+
