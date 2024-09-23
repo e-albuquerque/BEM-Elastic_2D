@@ -145,5 +145,5 @@ vmstress_int=matrices.compute_vonMises_stress(sigmaxy_int)
 
 # Heat map of von Mises stress
 
-title_fig = "Von Mises equivant stress"
+title_fig = "Von Mises stress"
 graphics.show_results(nodes_all,bound_nodes,int_nodes,nodes,elem,nodes_coord,vmstress_bound,vmstress_int,title_fig)
