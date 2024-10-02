@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Bem2d_e"
+authors = [
+    {name = "Eder Lima de Albuquerquer", email = "eder@unb.br"}
+]
+description = "BEM applied to 2d elastic problem"
+version = "0.0.1"
+readme = "README.md"
+license = {file = "LICENSE.txt"}
+requires-python = ">=3.7"
+dependencies = ["requests > 2.26.0","numpy",
+               "matplotlib",
+               "meshio",
+               "scipy"
+]
