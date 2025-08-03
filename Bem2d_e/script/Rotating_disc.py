@@ -3,6 +3,7 @@ import meshio
 import matplotlib.pyplot as plt
 import os
 
+
 import sys
 sys.path.append("../src")
 
@@ -12,6 +13,12 @@ import Bem2d_e.src.boundcond as boundcond
 import Bem2d_e.src.graphics as graphics
 import Bem2d_e.src.matrices as matrices
 
+
+# Enable non-blocking matplotlib mode
+plt.ion()
+
+import numpy as np
+import meshio
 
 def input_data():
     """
@@ -33,15 +40,18 @@ def input_data():
     # type_n = type of the boundary condition in normal direction
     # type_t = type of the boundary condition in tangent direction
     #    (type_n and type_t: 0 = displacement is know 1 = traction is known)
-    bound_cond = {'fixed': {'type_n': 0, 'value_n': 0, 'type_t': 0, 'value_t': 0},
-        'free': {'type_n': 1, 'value_n': 0, 'type_t': 1, 'value_t': 0},
-        'loaded': {'type_n': 1, 'value_n': 1., 'type_t': 1, 'value_t': 0}
+
+    bound_cond = {'supported1': {'type_n': 0, 'value_n': 0, 'type_t': 1, 'value_t': 0},
+                  'supported2': {'type_n': 0, 'value_n': 0, 'type_t': 1, 'value_t': 0},
+        'free': {'type_n': 1, 'value_n': 0, 'type_t': 1, 'value_t': 0}
     }
-    E = 1.0
+    E = 70.0e9
     nu = 0.3
     cwd = os.getcwd() # Get the current working directory
-    file_name = os.path.abspath(os.path.join(cwd, os.pardir))+'/gmsh/plate'
-    qpoint = '0.'  # Heat source
+    file_name = os.path.abspath(os.path.join(cwd, os.pardir))+'/BEM-Elastic_2D/Bem2d_e/gmsh/disc'
+    print(file_name)
+    qpoint =  {'type': 'rot','omega': 100, 'rho' : 2700
+               }   # Heat source
 
     return {'bound_cond': bound_cond, 'E': E, 'nu': nu, 'file_name': file_name,
             'qpoint': qpoint}
@@ -93,12 +103,20 @@ tvect=T.dot(tnt.reshape(2*nnodes)) # Vector with tractions in global reference s
 u=uvect.reshape(nnodes,2) # Matrix with diplacements in global reference system (shape = nnodes x 2)
 t=tvect.reshape(nnodes,2) # Matrix with tractions in global reference system (shape = nnodes x 2)
 
+
 elem = computed_data['line_elements'] # Conectivity matrix
 int_nodes = computed_data['internal_nodes'] # Index of internal nodes
 qpoint = inp_data['qpoint'] # Body force
 
+nintnodes = len(int_nodes)
+coord_int_nodes=np.zeros((nintnodes,2))
+
+# Loop over internal points (ii) and elements (jj)
+for ii in range(nintnodes):
+    coord_int_nodes[ii,:] = nodes_coord[int_nodes[ii]][0:2]  # Internal point coordinates
+
 # Compute displacements at internal points
-uint_vet = matrices.int_point(int_nodes,normal,nodes,nodes_coord,E,nu,qpoint, uvect, tvect)
+uint_vet = matrices.int_point(coord_int_nodes,normal,nodes,E,nu,qpoint, uvect, tvect)
 
 nint=uint_vet.shape[0]//2
 uint=uint_vet.reshape(nint,2)
@@ -117,7 +135,7 @@ title_fig = "Total displacement"
 graphics.show_results(nodes_all,bound_nodes,int_nodes,nodes,elem,nodes_coord,u_t,uint_t,title_fig)
 
 # Stress at internal points
-stress1,stress2 = matrices.compute_stress(int_nodes,nodes, nodes_coord,normal,E,nu,uvect,tvect,qpoint)
+stress1,stress2 = matrices.compute_stress(coord_int_nodes,nodes, nodes_coord,normal,E,nu,uvect,tvect,qpoint)
 sigmax=stress1[0::2]
 sigmay=stress2[1::2]
 tauxy =stress2[0::2]
@@ -138,8 +156,7 @@ vmstress_bound=matrices.compute_vonMises_stress(sigmaxy)
 
 # von Mises stress at internal points
 
-n_intnodes=sigmax.shape[0]
-sigmaxy_int=np.zeros((n_intnodes,3))
+sigmaxy_int=np.zeros((nint,3))
 sigmaxy_int[:,0]=sigmax
 sigmaxy_int[:,1]=sigmay
 sigmaxy_int[:,2]=tauxy
@@ -149,3 +166,66 @@ vmstress_int=matrices.compute_vonMises_stress(sigmaxy_int)
 
 title_fig = "Von Mises stress"
 graphics.show_results(nodes_all,bound_nodes,int_nodes,nodes,elem,nodes_coord,vmstress_bound,vmstress_int,title_fig)
+
+def compare_results_disc(points,u_num,sig_num,E,nu,b,rho,omega):
+    ne=points.shape[0]
+    u_an=np.zeros(ne)
+    sig_an=np.zeros((ne,2))
+    type_prob=2 # From plane stress to plane strain
+    if type_prob == 2:
+        E = E/(1-nu**2) # Eq. (4.14) Brebbia Dominguez (1996)
+        nu=nu/(1-nu)
+
+    for i in range(ne):
+        x=points[i,0]
+        y=points[i,1]
+        r=np.sqrt(x**2+y**2)
+        theta=np.arctan2(y,x)
+        sigma_r=(3+nu)/8*(b**2-r**2)*rho*omega**2
+        sigma_theta=(3+nu)/8*(b**2-(1+3*nu)/(3+nu)*r**2)*rho*omega**2
+        u=(1-nu)/(8*E)*((3+nu)*b**2-(1+nu)*r**2)*rho*omega**2*r
+        u_an[i]=u
+        sig_an[i,:]=[sigma_r,sigma_theta]
+
+    plt.plot(points[:,0],u_an,'ro-',label = 'u analitical')
+    plt.plot(points[:,0],u_num,'bo-',label = 'u numerical')
+
+    plt.legend()
+    plt.grid()
+    plt.title('Displacements')
+    plt.figure()
+
+    plt.plot(points[:,0],sig_an[:,0],'ro-',label = 'sig_r analitical');
+    plt.plot(points[:,0],sig_num[:,1],'bo-',label = 'sig_r numerical');
+
+    plt.plot(points[:,0],sig_an[:,1],'rs-',label = 'sig_theta analitical');
+    plt.plot(points[:,0],sig_num[:,0],'bs-',label = 'sig_theta numerical');
+    plt.legend()
+    plt.grid()
+    plt.title('Stresses')
+    return
+
+
+
+# Example usage with your computed data:
+my_segment_name = 'supported1'
+nodes_in_segment_coords, nodes_in_segment_indices = graphics.get_nodes(computed_data['segments'], computed_data['bc_info'], nodes, my_segment_name)
+
+
+b=.1
+omega = qpoint['omega']
+rho = qpoint['rho']
+points=nodes_in_segment_coords;
+u_num=unt[nodes_in_segment_indices,1]
+sig_num=np.zeros((nodes_in_segment_coords.shape[0],2))
+sig_num[:,0]=sigmat[nodes_in_segment_indices]
+sig_num[:,1]=tnt[nodes_in_segment_indices,0]
+compare_results_disc(points,u_num,sig_num,E,nu,b,rho,omega)
+
+
+
+# Keep figures open after script completion
+print("All plots generated successfully!")
+input("Press Enter to close all figures and exit...")
+
+

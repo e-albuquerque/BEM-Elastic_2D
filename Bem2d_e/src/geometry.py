@@ -47,10 +47,9 @@ def compute_inodes(file_name, bound_cond):
 
 
 
-
 def comp_node_and_normal(elem, nodes):
     """
-    Calculates the midpoint and outward normal vector for each boundary element.
+    Calculates the nodes and outward normal vector for each boundary element.
 
     This function takes element connectivity information (`elem`) and node coordinates (`nodes`)
     to determine the geometric center of each boundary element and the unit normal vector

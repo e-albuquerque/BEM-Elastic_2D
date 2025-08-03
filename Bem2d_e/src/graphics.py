@@ -3,10 +3,13 @@ import matplotlib.tri as triang
 from matplotlib import cm
 import numpy as np
 
+# Enable non-blocking mode
+plt.ion()
+
 
 def show_problem(nodes, normal, coord, bcs, tri):
     """
-   Visualizes the mesh and boundary conditions of a 2D problem.
+    Visualizes the mesh and boundary conditions of a 2D problem.
 
     This function generates a plot that displays:
 
@@ -96,8 +99,8 @@ def show_problem(nodes, normal, coord, bcs, tri):
 
     # Show the plot
     plt.show()
-    return
 
+    
 def inpoly(points, polygon_vertices, polygon_edges):
     """
     Determines if a set of points are inside a polygon with potential holes.
@@ -205,7 +208,12 @@ def show_results(node_all, bound_nodes, node_int, nodes, elem, coord, u_t, uint_
 
     ax.set_title(title_fig)
     ax.set_aspect("equal")
-    plt.show()
+    plt.draw()  # Force drawing
+    if plt.isinteractive():
+        plt.show(block=False)  # Non-blocking if in interactive mode
+        plt.pause(0.001)  # Brief pause to update display
+    else:
+        plt.show()  # Blocking if not in interactive mode
 
 def compute_bounds(elem, nodes_all):
     """
@@ -247,3 +255,69 @@ def compute_bounds(elem, nodes_all):
         elem_local[t] = [inode1_local, inode2_local]  # Store updated element with local indices
 
     return elem_local
+
+
+# prompt: Rewrite the code for the function get_nodes(segments, bc_info, nodes, my_segment) where it gets also the node indeces besides node coordinates of all nodes that are in the segment my_segment.
+
+def get_nodes(segments, bc_info, nodes, my_segment):
+  """
+  Gets the node coordinates and indices of all nodes that are in the segment my_segment.
+
+  Args:
+    segments (np.ndarray): Array of segment indices.
+    bc_info (dict): Dictionary containing boundary condition information.
+    nodes (np.ndarray): Array of boundary node coordinates.
+    my_segment (str): The name of the segment to retrieve nodes for.
+
+  Returns:
+    tuple: A tuple containing two NumPy arrays:
+      - np.ndarray: A 2D NumPy array where each row is the coordinate of a node
+                    in the specified segment.
+      - np.ndarray: A 1D NumPy array containing the indices of the nodes
+                    in the specified segment.
+  """
+  my_segment_index = -1
+  for bc_name, bc_data in bc_info.items():
+    if bc_name == my_segment:
+      my_segment_index = bc_data['segment']
+      break
+
+  if my_segment_index == -1:
+    print(f"Segment '{my_segment}' not found in bc_info.")
+    return np.array([]), np.array([])
+
+  segment_node_coords = []
+  segment_node_indices = []
+  for i, segment_index in enumerate(segments):
+    if segment_index == my_segment_index:
+      # Each element has two nodes
+      node1_index = 2 * i
+      node2_index = 2 * i + 1
+      segment_node_coords.append(nodes[node1_index])
+      segment_node_coords.append(nodes[node2_index])
+      segment_node_indices.append(node1_index)
+      segment_node_indices.append(node2_index)
+
+  # Convert list of coordinates and indices to numpy arrays
+  segment_node_coords_array = np.array(segment_node_coords)
+  segment_node_indices_array = np.array(segment_node_indices)
+
+  # Use np.unique to get unique rows (nodes) and their corresponding indices
+  # We need to find unique rows in coordinates and then get the corresponding indices.
+  # A common way is to use return_index=True with unique on the coordinate array.
+  # However, this only returns the index of the first occurrence of each unique row.
+  # Since our nodes array is ordered by element, the indices will correspond to
+  # the 2*i and 2*i+1 structure. We can find the unique coordinates and then
+  # find the indices of these unique coordinates in the original `nodes` array.
+
+  # First, find unique coordinates
+  unique_coords, unique_indices_in_temp = np.unique(segment_node_coords_array, axis=0, return_index=True)
+
+  # The indices in unique_indices_in_temp are indices within the temporary segment_node_coords_array.
+  # We need the original indices from the `nodes` array.
+  # Since we built segment_node_indices_array in the same order as segment_node_coords_array,
+  # we can use the unique_indices_in_temp to get the corresponding indices from segment_node_indices_array.
+  unique_node_indices = segment_node_indices_array[unique_indices_in_temp]
+
+
+  return unique_coords, unique_node_indices

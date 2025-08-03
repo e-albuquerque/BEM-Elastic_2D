@@ -1,6 +1,6 @@
 def compute_fund_solutions(r1, r2, r, nx, ny, E, nu):
   """
-  Computes the fundamental solutions for plane elasticity.
+  Computes the fundamental solution for plane elasticity.
 
   Args:
     r1: x-coordinate of the distance vector.
@@ -37,6 +37,7 @@ def compute_fund_solutions(r1, r2, r, nx, ny, E, nu):
   uast = np.array([[u11, u12], [u21, u22]])
   tast = np.array([[t11, t12], [t21, t22]])
   return uast, tast
+
 
 def compute_gh_sing(E,nu,x1,x2,y1,y2,n1,n2,xidd):
   """
@@ -104,7 +105,6 @@ def compute_gh_sing(E,nu,x1,x2,y1,y2,n1,n2,xidd):
 
   return g_el, h_el
 
-
 def mount_matrices(nodes, normal, E, nu, qpoint_str):
     """
     Computes H, G matrices, and q vector for the Boundary Element Method (BEM)
@@ -112,9 +112,8 @@ def mount_matrices(nodes, normal, E, nu, qpoint_str):
     integrals.
 
     Args:
-        node_med (ndarray): Coordinates of element midpoints.
+        nodes (ndarray): Coordinates of nodes.
         normal (ndarray): Normal vectors at element midpoints.
-        nodes_coord (ndarray): Coordinates of all nodes.
         elem (ndarray): Element connectivity matrix.
         E (float): Material elastic modulus.
         nu (float): Material Poisson coefficient.
@@ -185,21 +184,23 @@ def mount_matrices(nodes, normal, E, nu, qpoint_str):
                     uast,tast= compute_fund_solutions(r1,r2,r, nx,ny,E,nu)
 
                     # Radial integration
-                    if(float(qpoint_str[0]) != 0.):
+                    # Transformation of domain integral in boundary integral
+                    if(qpoint_str['type'] == 'rot'):
+                        omega = qpoint_str['omega']
+                        rho_dens = qpoint_str['rho']
                         intF = np.zeros(2)
-                        theta=np.arctan2(r1,r2)
+                        theta=np.arctan2(r2,r1)
                         for kkk in range(npgauss):
                             rho = r * (xi[kkk] + 1) / 2
-                            r1=rho*np.cos(theta)
-                            r2=rho*np.sin(theta)
-                            uast2,tast2 = compute_fund_solutions(r1,r2,r,nx,ny,E,nu)
-                            f=np.array([0,0])
+                            rho1=rho*np.cos(theta)
+                            rho2=rho*np.sin(theta)
+                            xint = x0+rho1
+                            yint = y0+rho2
+                            uast2,tast2 = compute_fund_solutions(rho1,rho2,rho,nx,ny,E,nu)
+                            f=rho_dens*omega**2*np.array([xint,yint])
                             intF += uast2.dot(f) * rho * r / 2 * weight[kkk]
                         intq += intF * (nx * r1 + ny * r2) / r**2 * L / 2 * weight[kk]
-
-
                     # Update integrals
-
                     intG += uast.dot(N) * L / 2 * weight[kk]
                     intH += tast.dot(N) * L / 2 * weight[kk]
 
@@ -210,7 +211,6 @@ def mount_matrices(nodes, normal, E, nu, qpoint_str):
 
 
     return H, G, q
-
 
 def transformation_matrix(normal):
   """
@@ -235,6 +235,7 @@ def transformation_matrix(normal):
     transformation_matrix[2 * i:2 * i + 2, 2 * i:2 * i + 2] = local_transformation
 
   return transformation_matrix
+
 
 def mount_linear_system(H, G, bcs):
     """
@@ -270,11 +271,17 @@ def mount_linear_system(H, G, bcs):
     # Assemble the A matrix and B matrix based on boundary conditions
     for el in range(ne):  # Iterate over each boundary element
         if bcs[2*el, 0] == 0:  # Dirichlet BC: Displacement is known
-            A[:, 4*el:4*el+4] = -G[:, 4*el:4*el+4]  # A gets -G for this column
-            B[:, 4*el:4*el+4] = -H[:, 4*el:4*el+4]  # B gets -H for this column
+            A[:, 4*el:4*el+4:2] = -G[:, 4*el:4*el+4:2]  # A gets -G for this column
+            B[:, 4*el:4*el+4:2] = -H[:, 4*el:4*el+4:2]  # B gets -H for this column
         else:  # Neumann BC: traction is known
-            A[:, 4*el:4*el+4] = H[:, 4*el:4*el+4]   # A gets H for this column
-            B[:, 4*el:4*el+4] = G[:, 4*el:4*el+4]   # B gets G for this column
+            A[:, 4*el:4*el+4:2] = H[:, 4*el:4*el+4:2]   # A gets H for this column
+            B[:, 4*el:4*el+4:2] = G[:, 4*el:4*el+4:2]   # B gets G for this column
+        if bcs[2*el, 2] == 0:  # Dirichlet BC: Displacement is known
+            A[:, 4*el+1:4*el+4:2] = -G[:, 4*el+1:4*el+4:2]  # A gets -G for this column
+            B[:, 4*el+1:4*el+4:2] = -H[:, 4*el+1:4*el+4:2]  # B gets -H for this column
+        else:  # Neumann BC: traction is known
+            A[:, 4*el+1:4*el+4:2] = H[:, 4*el+1:4*el+4:2]   # A gets H for this column
+            B[:, 4*el+1:4*el+4:2] = G[:, 4*el+1:4*el+4:2]   # B gets G for this column
     for el in range(ne):
         for no in range(2):
           for gdl in range(2):
@@ -351,11 +358,9 @@ def mount_vectors(solution, bcs):
         else:  # Neumann BC for t-component
             u[2 * elem + 1, 1] = solution[4 * elem + 3]
             t[2 * elem + 1, 1] = bcs[2 * elem + 1, 3]
-
     return u, t
 
-
-def int_point(node_int, normal, nodes, nodes_coord, E, nu, qpoint_str, u, t):
+def int_point(coord_int_nodes, normal, nodes, E, nu, qpoint_str, u, t):
     """
     Assembles H, G matrices, and their derivatives, as well as vector q and its derivatives
     for internal points in the Boundary Element Method.
@@ -376,11 +381,11 @@ def int_point(node_int, normal, nodes, nodes_coord, E, nu, qpoint_str, u, t):
     """
 
     # Number of integration points and Gauss quadrature data
-    npgauss = 4
+    npgauss = 10
     xi, weight = np.polynomial.legendre.leggauss(npgauss)
 
     # Number of internal points and elements
-    nintnodes = len(node_int)
+    nintnodes = coord_int_nodes.shape[0]
     nnodes = nodes.shape[0]
 
     # Matrix/vector initialization (with proper shapes)
@@ -391,7 +396,7 @@ def int_point(node_int, normal, nodes, nodes_coord, E, nu, qpoint_str, u, t):
 
     # Loop over internal points (ii) and elements (jj)
     for ii in range(nintnodes):
-        x0, y0 = nodes_coord[node_int[ii]][0:2]  # Internal point coordinates
+        x0, y0 = coord_int_nodes[ii,0:2]  # Internal point coordinates
 
         for jj in range(nnodes//2):
             # Element geometry (starting/ending node coordinates and length)
@@ -413,7 +418,7 @@ def int_point(node_int, normal, nodes, nodes_coord, E, nu, qpoint_str, u, t):
                 x = N1 * x1 + N2 * x2
                 y = N1 * y1 + N2 * y2
 
-                # Distances, fundamental solutions, and their derivatives
+                # Distances, fundamental solutions
                 rx, ry = x - x0, y - y0
                 r = np.sqrt(rx**2 + ry**2)
 
@@ -424,18 +429,21 @@ def int_point(node_int, normal, nodes, nodes_coord, E, nu, qpoint_str, u, t):
                 intG += uast.dot(N) * L / 2 * weight[kk]
                 intH += tast.dot(N) * L / 2 * weight[kk]
 
-                # Radial integration for q, dqx, dqy
-                if(float(qpoint_str[0]) != 0.):
+                # Radial integration
+                if(qpoint_str['type'] == 'rot'):
+                    omega = qpoint_str['omega']
+                    rho_dens = qpoint_str['rho']
                     intF = np.zeros(2)
                     theta=np.arctan2(ry,rx)
                     for kkk in range(npgauss):
                         rho = r * (xi[kkk] + 1) / 2
-                        x, y = x0 + rho * np.cos(theta), y0 + rho * np.sin(theta)
+                        rho1=rho * np.cos(theta)
+                        rho2=rho * np.sin(theta)
+                        xint, yint = x0 + rho1, y0 + rho2
 
-                        uast2,tast2 = compute_fund_solutions(rx,ry,r,nx,ny,E,nu)
-                        f=np.array([0,0])
+                        uast2,tast2 = compute_fund_solutions(rho1,rho2,rho,nx,ny,E,nu)
+                        f=rho_dens*omega**2*np.array([xint,yint])
                         intF += uast2.dot(f) * rho * r / 2 * weight[kkk]
-
                     intq += intF * (nx * rx + ny * ry) / r**2 * L / 2 * weight[kk]
 
             # Update matrices/vectors for the current internal point and element
@@ -447,7 +455,7 @@ def int_point(node_int, normal, nodes, nodes_coord, E, nu, qpoint_str, u, t):
 
     # Compute displacement at internal points
 
-    uint = - Hin.dot(u) + Gin.dot(t) - qin # Displacement
+    uint = - Hin.dot(u) + Gin.dot(t) + qin # Displacement
 
     return uint
 
@@ -560,7 +568,7 @@ def integrate_D_and_S(xd, yd, x1, y1, x2, y2, normal, E, nu, xi, w):
 
   return h1, g1, h2, g2
 
-def compute_stress(nodes_int, nodes, nodes_coord, normal, E, nu, u, t, qpoint):
+def compute_stress(coord_int_nodes, nodes, nodes_coord, normal, E, nu, u, t, qpoint_str):
   """
   Computes stresses at internal points using the boundary element method.
 
@@ -579,27 +587,137 @@ def compute_stress(nodes_int, nodes, nodes_coord, normal, E, nu, u, t, qpoint):
     stress1, stress2: Stress components at internal points.
   """
 
-  npgauss = 4  # Number of integration points
+  npgauss = 12  # Number of integration points
   xi, w = np.polynomial.legendre.leggauss(npgauss)  # Gaussian points and weights
-  n_int = len(nodes_int)  # Number of internal points
+  # Number of internal points and elements
+  n_int = coord_int_nodes.shape[0]
   n_nodes = nodes.shape[0]  # Number of boundary nodes
   n_el = n_nodes // 2  # Number of boundary elements
   stress1 = np.zeros((2 * n_int))
   stress2 = np.zeros((2 * n_int))
 
   for no in range(n_int):
-    x_f, y_f = nodes_coord[nodes_int[no]][0:2]  # Internal point coordinates
+    x_f, y_f = coord_int_nodes[no,0:2]  # Internal point coordinates
     for el in range(n_el):
       x1, y1 = nodes[2 * el, 0:2]  # Coordinates of the first node of the element
       x2, y2 = nodes[2 * el + 1, 0:2]  # Coordinates of the second node of the element
       h1, g1, h2, g2 = integrate_D_and_S(x_f, y_f, x1, y1, x2, y2, normal[2 * el, :], E, nu, xi, w)
+      # Radial integration
+      if(qpoint_str['type'] == 'rot'):
+          omega = qpoint_str['omega']
+          rho_dens = qpoint_str['rho']
+          dp1, dp2 = calc_dp(rho_dens,omega,x1,y1,x2,y2,x_f,y_f,normal[2 * el, 0],normal[2 * el, 1],E,nu)
+      else:
+          dp1=np.zeros(2)
+          dp2=np.zeros(2)
 
       # Compute stress contribution from current element
-      stress1[2 * no:2 * no + 2] += (-h1.dot(u[4*el:4*el+4]) + g1.dot(t[4*el:4*el+4]))
-      stress2[2 * no:2 * no + 2] += (-h2.dot(u[4*el:4*el+4]) + g2.dot(t[4*el:4*el+4]))
+      stress1[2 * no:2 * no + 2] += (-h1.dot(u[4*el:4*el+4]) + g1.dot(t[4*el:4*el+4]))-dp1
+      stress2[2 * no:2 * no + 2] += (-h2.dot(u[4*el:4*el+4]) + g2.dot(t[4*el:4*el+4]))-dp2
 
   return stress1, stress2
 
+def  calc_F(r,theta,x0,y0,density,omega,E,nu):
+    # Gauss points
+    npg = 6
+    xi, w = np.polynomial.legendre.leggauss(npg)
+    jacob=r/2
+    F = np.zeros(2)
+
+    for i in range(npg):
+        rho=(xi[i]/2+1/2)*r
+        x=x0+rho*np.cos(theta)
+        y=y0+rho*np.sin(theta)
+        r1 = x - x0
+        r2 = y - y0
+        b=density*omega**2*np.array([x,y])
+        nx=0
+        ny=0
+        uast,tast= compute_fund_solutions(r1,r2,rho, nx,ny,E,nu)
+        F=F-uast.dot(b)*rho*jacob*w[i]
+    return F
+
+def  calc_p(rho,omega,x1,y1,x2,y2,x0,y0,nx,ny,E,nu):
+    npg = 2
+    xi, w = np.polynomial.legendre.leggauss(npg)
+
+    # Número de pontos de Gauss usados na integração
+    p_el = np.zeros(2)
+    for i in range(npg):
+        N1 = 0.5 - xi[i]
+        N2 = 0.5 + xi[i]
+        N = np.array([[N1,0, N2,0],[0,N1,0,N2]])
+        x = N1 * x1 + N2 * x2
+        y = N1 * y1 + N2 * y2
+        # Distance of source and field points
+        r1 = x - x0
+        r2 = y - y0
+        r = np.sqrt(r1**2+r2**2)
+        dxdqsi=(x2-x1)
+        dydqsi=(y2-y1)
+        dgamadqsi=np.sqrt(dxdqsi**2+dydqsi**2)
+        nr=nx*r1/r+ny*r2/r
+        theta=np.arctan2(r2,r1)
+        F=calc_F(r,theta,x0,y0,rho,omega,E,nu)
+        p_el = p_el + F*nr/r * dgamadqsi * w[i]
+    return p_el
+
+def  calc_dF(r,theta,x0,y0,density,omega,E,nu):
+    # Gauss points
+    npg = 6
+    xi, w = np.polynomial.legendre.leggauss(npg)
+    jacob=r/2
+    dF1 = np.zeros(2)
+    dF2 = np.zeros(2)
+
+    for i in range(npg):
+        rho=(xi[i]/2+1/2)*r
+        x=x0+rho*np.cos(theta)
+        y=y0+rho*np.sin(theta)
+        r1 = x - x0
+        r2 = y - y0
+        b=density*omega**2*np.array([x,y])
+        nx=0
+        ny=0
+        # uast,tast= compute_fund_solutions(r1,r2,rho, nx,ny,E,nu)
+
+
+        D, S = compute_D_S(x0, y0, x, y, nx, ny, E, nu)
+        # Reshape D and S tensors for easier matrix multiplication
+        D1 = np.array([[D[0, 0, 0], D[1, 0, 0]], [D[0, 0, 1], D[1, 0, 1]]])
+        D2 = np.array([[D[0, 1, 0], D[1, 1, 0]], [D[0, 1, 1], D[1, 1, 1]]])
+
+
+        dF1=dF1-D1.dot(b)*rho*jacob*w[i]
+        dF2=dF2-D2.dot(b)*rho*jacob*w[i]
+    return dF1,dF2
+
+def  calc_dp(rho,omega,x1,y1,x2,y2,x0,y0,nx,ny,E,nu):
+    npg = 6
+    xi, w = np.polynomial.legendre.leggauss(npg)
+
+    # Número de pontos de Gauss usados na integração
+    dp_el1 = np.zeros(2)
+    dp_el2 = np.zeros(2)
+    for i in range(npg):
+        N1 = 0.5 - xi[i]
+        N2 = 0.5 + xi[i]
+        N = np.array([[N1,0, N2,0],[0,N1,0,N2]])
+        x = N1 * x1 + N2 * x2
+        y = N1 * y1 + N2 * y2
+        # Distance of source and field points
+        r1 = x - x0
+        r2 = y - y0
+        r = np.sqrt(r1**2+r2**2)
+        dxdqsi=(x2-x1)
+        dydqsi=(y2-y1)
+        dgamadqsi=np.sqrt(dxdqsi**2+dydqsi**2)
+        nr=nx*r1/r+ny*r2/r
+        theta=np.arctan2(r2,r1)
+        dF1,dF2=calc_dF(r,theta,x0,y0,rho,omega,E,nu)
+        dp_el1 = dp_el1 + dF1*nr/r * dgamadqsi * w[i]
+        dp_el2 = dp_el2 + dF2*nr/r * dgamadqsi * w[i]
+    return dp_el1,dp_el2
 
 def compute_epsilont(nodes, nodes_coord,normal,E,nu,ut,qpoint):
   """
@@ -678,7 +796,6 @@ def compute_boundary_stresses(normal, sigman, sigmat, taunt):
     s = t.T @ sigma @ t  # Stress tensor in global system
     sigmaxy[i, 0:3] = np.array([s[0, 0], s[1, 1], s[0, 1]])
   return sigmaxy
-
 
 def compute_vonMises_stress(sigmaxy):
   """
